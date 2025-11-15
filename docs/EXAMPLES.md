@@ -1,6 +1,10 @@
 # Usage Examples and Tutorials
 
-This document provides practical examples and tutorials for using Pose-SPI for human keypoint detection.
+**Privacy-Preserving Keypoint Detection via Single-Pixel Imaging**
+
+This document provides practical examples and tutorials for using Pose-SPI for privacy-preserving human keypoint detection.
+
+> **Important Context**: Pose-SPI uses **single-pixel imaging (SPI)** to detect human keypoints without capturing full images. The examples below use grayscale images to **simulate** single-pixel measurements. In real hardware deployment, you would replace image inputs with measurement vectors from a single-pixel camera. This approach preserves privacy by extracting only pose information without reconstructing identifiable visual details. See [README.md](../README.md) and [ARCHITECTURE.md](ARCHITECTURE.md) for details.
 
 ## Table of Contents
 

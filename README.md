@@ -1,58 +1,117 @@
-# Pose-SPI: Human Keypoint Detection
+# Pose-SPI: Image-free Single-Pixel Keypoint Detection
 
-A PyTorch-based implementation for human keypoint detection from grayscale images. This project provides two model architectures for pose estimation on low-resolution (64x64) images, suitable for research and applications in human activity recognition, motion analysis, and pose estimation.
+**Privacy-Preserving Human Pose Estimation using Single-Pixel Imaging**
+
+A PyTorch implementation of image-free human keypoint detection using single-pixel imaging (SPI) technology. This approach enables privacy-preserving pose estimation by extracting keypoints directly from single-pixel measurements without reconstructing the full image.
+
+## 📄 Paper
+
+**"Image-free single-pixel keypoint detection for privacy preserving human pose estimation"**
+
+This repository contains the implementation of the method described in the paper, demonstrating how single-pixel cameras can be used for human pose estimation while preserving privacy.
+
+## 🔒 Privacy-Preserving Approach
+
+Traditional computer vision systems capture full images, which can reveal sensitive information about individuals and their environment. This project uses **single-pixel imaging** to address privacy concerns:
+
+### How Single-Pixel Imaging Works
+
+```
+Traditional Camera:              Single-Pixel Camera:
+┌─────────────────┐             ┌─────────────────┐
+│ Millions of     │             │ Structured      │
+│ pixels capture  │             │ illumination    │
+│ full image      │             │ patterns        │
+│                 │             │ (e.g., Hadamard)│
+└─────────────────┘             └─────────────────┘
+        ↓                               ↓
+┌─────────────────┐             ┌─────────────────┐
+│ Full RGB image  │             │ Single detector │
+│ 📸 [Privacy     │             │ measures total  │
+│    concerns]    │             │ light intensity │
+└─────────────────┘             └─────────────────┘
+        ↓                               ↓
+┌─────────────────┐             ┌─────────────────┐
+│ Image processing│             │ Direct keypoint │
+│ → Extract pose  │             │ extraction from │
+│                 │             │ measurements    │
+└─────────────────┘             └─────────────────┘
+        ↓                               ↓
+    Pose data                   Pose data ✓ Privacy!
+```
+
+### Key Privacy Benefits
+
+- **No image reconstruction**: Keypoints are extracted directly from measurements
+- **Minimal visual information**: Single-pixel detector captures aggregate light, not spatial details
+- **Inherent privacy**: Cannot recover faces, identities, or environmental details
+- **Hardware-level protection**: Privacy preserved at the sensor level, not just software
+
+### Applications
+
+- **Healthcare monitoring**: Patient pose tracking without capturing identifiable images
+- **Smart homes**: Activity recognition while preserving occupant privacy
+- **Workplace safety**: Posture monitoring without surveillance concerns
+- **Elderly care**: Fall detection without invasive imaging
+- **Sports analytics**: Performance analysis without recording athletes' faces
 
 ## Features
 
 - **Two Model Architectures**:
-  - Simple CNN-based keypoint detector with lightweight architecture
-  - EfficientNet-based model leveraging pretrained features for enhanced accuracy
-- **COCO Format Support**: Compatible with COCO-style keypoint annotations
-- **Flexible Training Pipeline**: Customizable hyperparameters and dataset paths
+  - Simple CNN-based detector optimized for single-pixel measurements
+  - EfficientNet-based model leveraging pretrained features (adapted for SPI)
+- **Hadamard Pattern Simulation**: CustomConv layer mimics Hadamard sampling patterns
+- **Flexible Measurement Counts**: Adjustable number of measurements via `reduce` parameter
+- **COCO Format Support**: Compatible with standard keypoint annotations
 - **Real-time Monitoring**: TensorBoard integration for training visualization
-- **COCO Evaluation Metrics**: Standard keypoint detection evaluation using OKS (Object Keypoint Similarity)
+- **Standard Evaluation**: COCO evaluation metrics for keypoint detection
 
 ## Table of Contents
 
-- [Architecture Overview](#architecture-overview)
+- [How It Works](#how-it-works)
 - [Installation](#installation)
 - [Dataset](#dataset)
 - [Training](#training)
 - [Evaluation](#evaluation)
 - [Project Structure](#project-structure)
 - [Model Details](#model-details)
+- [Understanding Single-Pixel Imaging](#understanding-single-pixel-imaging)
 - [Important Notes](#important-notes)
+- [Citation](#citation)
 - [Contributing](#contributing)
 
-## Architecture Overview
+## How It Works
 
-Both model variants share a common pipeline structure:
+### Single-Pixel Measurement Pipeline
+
+1. **Pattern Generation**: Scene is illuminated with structured patterns (Hadamard, random, etc.)
+2. **Single-Pixel Detection**: Total reflected/transmitted light measured by single detector
+3. **Multiple Measurements**: Process repeated with different patterns (e.g., 64×64 = 4096 measurements)
+4. **Direct Keypoint Extraction**: Neural network extracts keypoints from measurement vector
+5. **Privacy Preserved**: No intermediate image reconstruction needed
+
+### Architecture Overview
 
 ```
-Input (Grayscale 64x64)
+Single-Pixel Measurements (64×64 patterns)
     ↓
-Encoder (CustomConv → MaxPool → FC)
+CustomConv (Hadamard Product Simulation)
     ↓
-FSRCNN (Feature Extraction → Mapping → Upsampling → Expansion)
+Encoder (Extract features from measurements)
+    ↓
+FSRCNN (Upsample feature representations)
     ↓
 ┌─────────────────────────────────────┐
 │  Model 1: SimpleCNN                 │
-│  (Conv × 2 → AvgPool × 2)          │
+│  (Lightweight detector)             │
 │                                     │
 │  Model 2: EfficientNet + RCNN       │
-│  (Pretrained Backbone → Predictor)  │
+│  (Enhanced feature extraction)      │
 └─────────────────────────────────────┘
     ↓
-Output: N × 3 [x, y, visibility]
+Output: Keypoints (N × 3)
+[x, y, visibility] for each keypoint
 ```
-
-### Key Components
-
-1. **Encoder**: Reduces spatial dimensions using learnable convolution, max pooling, and fully connected layers
-2. **FSRCNN** (Fast Super-Resolution CNN): Upsamples features while preserving spatial details
-3. **Keypoint Detection Head**:
-   - **Simple Model**: Lightweight CNN with 2 convolutions and average pooling
-   - **EfficientNet Model**: Pretrained EfficientNet-B0 backbone with RCNN-style predictor
 
 ## Installation
 
@@ -74,7 +133,7 @@ cd Pose-SPI-main
 pip install -r requirements.txt
 ```
 
-3. If TensorBoard is not installed, install it separately:
+3. If TensorBoard is not installed:
 ```bash
 pip install tensorboard
 ```
@@ -92,28 +151,36 @@ pip install tensorboard
 
 ### Toy Dataset
 
-The repository includes a toy dataset (`toydataset/`) for quick experimentation:
+The repository includes a toy dataset for experimentation. Note that for this single-pixel imaging approach:
 
-- **Images**: 100 RGB images (64x64 pixels) with background removed
+- **Input Format**: RGB images (64×64) are used to **simulate** single-pixel measurements
+- **In Practice**: Real single-pixel cameras would provide measurement vectors directly
+- **Simulation**: The training pipeline converts images to grayscale and processes them as if they were single-pixel measurements
 - **Annotations**: COCO format JSON with 14 keypoints per person
-- **Location**:
-  - Images: `toydataset/images/train2017/`
-  - Annotations: `toydataset/annotations/annotations.json`
+
+**Dataset location**:
+- Images: `toydataset/images/train2017/` (100 sample images)
+- Annotations: `toydataset/annotations/annotations.json`
 
 ### Using Custom Datasets
 
-To use your own dataset:
+For simulated single-pixel imaging:
 
-1. Organize images in a directory (e.g., `my_dataset/images/`)
-2. Create COCO-format annotations JSON file
-3. Ensure keypoint format matches: `[x, y, visibility]` for each keypoint
-4. Pass paths via command-line arguments (see [Training](#training))
+1. Organize 64×64 images representing measurement patterns
+2. Create COCO-format annotations with keypoint ground truth
+3. The model will treat grayscale intensities as single-pixel measurements
+4. Pass paths via command-line arguments
+
+**For real single-pixel data**:
+- Modify data loader to accept measurement vectors directly
+- Reshape measurements to (batch, 1, 64, 64) format
+- Follow the same training procedure
 
 ## Training
 
 ### Simple Keypoint Detector
 
-Train the lightweight CNN-based model:
+Train the lightweight model optimized for single-pixel measurements:
 
 ```bash
 python train.py
@@ -123,7 +190,7 @@ python train.py
 
 ### EfficientNet-based Model
 
-Train the EfficientNet-based model with pretrained backbone:
+Train with pretrained backbone (adapted for single-pixel inputs):
 
 ```bash
 python train_keypointrcnn.py
@@ -131,11 +198,9 @@ python train_keypointrcnn.py
 
 ### Customizing Training Parameters
 
-Both training scripts support the following arguments:
-
 ```bash
 python train.py \
-  --data_path ./path/to/images \
+  --data_path ./path/to/measurements \
   --annotation_path ./path/to/annotations.json \
   --epochs 1000 \
   --batch 4 \
@@ -145,7 +210,7 @@ python train.py \
 ```
 
 **Arguments**:
-- `--data_path`: Directory containing training images
+- `--data_path`: Directory containing measurement data (or simulated images)
 - `--annotation_path`: Path to COCO format annotations JSON
 - `--epochs`: Number of training epochs (default: 1000)
 - `--batch`: Mini-batch size (default: 4)
@@ -153,22 +218,38 @@ python train.py \
 - `--output_dir`: Directory to save model weights (default: "weights")
 - `--num_keypoints`: Number of keypoints to detect (default: 13)
 
+### Model Parameters
+
+The `KeypointDetection` model accepts additional parameters for single-pixel imaging:
+
+```python
+model = KeypointDetection(
+    num_keypoints=13,
+    product=True,   # Use Hadamard-like multiplication (True) or convolution (False)
+    reduce=False    # Reduce number of measurements (True = 1024, False = 4096)
+)
+```
+
+**Key Parameters**:
+- `product=True`: Mimics Hadamard pattern multiplication (typical for SPI)
+- `reduce=True`: Simulates fewer measurements (32×32 = 1024 instead of 64×64 = 4096)
+
 ### Monitoring Training
 
-Use TensorBoard to visualize training progress in real-time:
+Use TensorBoard to visualize training:
 
 ```bash
 tensorboard --logdir tensorboard_logs
 ```
 
-Then open your browser to `http://localhost:6006` to view:
+Access at `http://localhost:6006` to view:
 - Training loss curves
 - Validation metrics
-- Keypoint visualization overlays
+- Keypoint visualizations
 
 ## Evaluation
 
-The project includes COCO-style evaluation metrics for keypoint detection:
+COCO-style evaluation for keypoint detection:
 
 ```python
 from utils import evaluate_keypoint_detection
@@ -177,15 +258,15 @@ evaluate_keypoint_detection(
     model=model,
     device=device,
     ann_file='path/to/annotations.json',
-    data_loader=val_data_loader,
+    data_loader=val_loader,
     num_keypoints=13
 )
 ```
 
-**Metrics computed**:
+**Metrics**:
 - Average Precision (AP) @ various OKS thresholds
 - Average Recall (AR) @ various detection counts
-- AP/AR for medium and large person sizes
+- AP/AR for different object sizes
 
 ## Project Structure
 
@@ -197,12 +278,12 @@ Pose-SPI-main/
 ├── dataset.rar                        # Compressed dataset
 │
 ├── models/                            # Neural network architectures
-│   ├── model_grayscale_input.py      # Simple CNN keypoint detector
-│   ├── model_grayscale_keypointrcnn.py  # EfficientNet-based detector
+│   ├── model_grayscale_input.py      # Simple model for SPI measurements
+│   ├── model_grayscale_keypointrcnn.py  # EfficientNet-based SPI model
 │   ├── efficentnet.py                # EfficientNet implementation
 │   └── efficientnet_utils.py         # EfficientNet utilities
 │
-├── data_loader.py                     # COCO dataset loader
+├── data_loader.py                     # COCO dataset loader (SPI simulation)
 ├── train.py                           # Training script (Simple model)
 ├── train_keypointrcnn.py              # Training script (EfficientNet model)
 ├── utils.py                           # Utilities (evaluation, visualization)
@@ -216,131 +297,179 @@ Pose-SPI-main/
 │   ├── annotations/
 │   │   └── annotations.json          # COCO annotations
 │   └── images/
-│       └── train2017/                # 100 sample images
+│       └── train2017/                # 100 sample images (SPI simulation)
+│
+├── docs/                              # Additional documentation
+│   ├── API.md                        # API reference
+│   ├── ARCHITECTURE.md               # Architecture details
+│   └── EXAMPLES.md                   # Usage examples
 │
 └── tensorboard_logs/                  # Training logs (auto-generated)
 ```
 
 ## Model Details
 
-### Model 1: Simple Keypoint Detector
+### Model 1: Simple Single-Pixel Detector
 
 **Architecture**: `models/model_grayscale_input.py`
 
-- **Encoder**: CustomConv → MaxPool → FC layers
-- **FSRCNN**: Super-resolution upsampling module
-- **SimpleCNN Head**: 2 Conv layers + 2 AvgPool layers → Keypoint predictions
+**Components**:
+- **CustomConv**: Simulates Hadamard product (element-wise multiplication with learnable patterns)
+- **Encoder**: Extracts features from single-pixel measurements
+- **FSRCNN**: Upsamples feature representations
+- **SimpleCNN**: Lightweight keypoint detection head
 
-**Use case**: Lightweight model for real-time applications or resource-constrained environments
+**Use case**: Fast inference for real-time privacy-preserving pose estimation
 
 **Training**: `python train.py`
 
-### Model 2: EfficientNet-based Keypoint Detector
+**Key Features**:
+- `product=True`: Mimics structured illumination patterns
+- `reduce=False`: Uses full 4096 measurements (64×64)
+
+### Model 2: EfficientNet-based Single-Pixel Detector
 
 **Architecture**: `models/model_grayscale_keypointrcnn.py`
 
-- **Encoder**: CustomConv → MaxPool → FC layers
-- **FSRCNN**: Super-resolution upsampling module
-- **EfficientNet Backbone**: Pretrained EfficientNet-B0 for feature extraction
-- **RCNN Head**: Keypoint regression with L1/Smooth L1 loss
+**Components**:
+- **Encoder**: Same as simple model (SPI measurement processing)
+- **FSRCNN**: Feature upsampling
+- **EfficientNet Backbone**: Pretrained features adapted for SPI
+- **KeypointPredictor**: RCNN-style regression head
 
-**Use case**: Higher accuracy applications where pretrained features improve performance
+**Use case**: Higher accuracy when computational resources allow
 
 **Training**: `python train_keypointrcnn.py`
 
+## Understanding Single-Pixel Imaging
+
+### What is Single-Pixel Imaging?
+
+Single-pixel imaging is a computational imaging technique that:
+
+1. **Uses a single detector** instead of megapixel camera arrays
+2. **Illuminates scenes** with structured patterns (Hadamard, Fourier, random)
+3. **Measures total light** reflected/transmitted for each pattern
+4. **Reconstructs or analyzes** the scene from multiple measurements
+
+### Why Single-Pixel for Privacy?
+
+Traditional cameras capture full spatial information, which:
+- ❌ Reveals faces and identities
+- ❌ Shows environmental details
+- ❌ Can be misused or hacked
+- ❌ Raises privacy concerns in sensitive settings
+
+Single-pixel imaging:
+- ✅ Captures only aggregate measurements
+- ✅ Cannot reconstruct detailed images without full measurement set
+- ✅ Allows task-specific information extraction (keypoints) without full image
+- ✅ Provides hardware-level privacy protection
+
+### Measurement Requirements
+
+**Full reconstruction**: ~N² measurements (for N×N image)
+**Keypoint detection** (this work): Can work with fewer measurements
+
+Example for 64×64 resolution:
+- Full reconstruction: ~4096 measurements
+- This method: Trained on 4096 (full) or 1024 (reduced) measurements
+- Future work: Could potentially use even fewer measurements
+
+### Hadamard Patterns
+
+Hadamard patterns are binary (+1/-1) orthogonal patterns optimal for:
+- Signal-to-noise ratio
+- Measurement efficiency
+- Reconstruction quality
+
+The `CustomConv` layer with `product=True` simulates this process:
+```python
+measurement = learnable_pattern * input_signal
+```
+
 ## Important Notes
 
-### Hyperparameters
+### Single-Pixel Imaging Specifics
 
-- **Default settings** are optimized for the included toy dataset (100 images)
-- When using different datasets, adjust:
-  - **Learning rate**: Larger datasets may benefit from higher learning rates
-  - **Epochs**: More data typically requires more training time
-  - **Batch size**: Small batch sizes (2-8) often work best for small models
+- **Input Interpretation**: The 64×64 "images" represent measurement patterns, not traditional photos
+- **Privacy Guarantee**: Keypoints extracted directly; full image never reconstructed
+- **Measurement Count**: Configurable via `reduce` parameter (1024 vs 4096 measurements)
+- **Pattern Simulation**: `CustomConv` with `product=True` mimics Hadamard sampling
+
+### Training Considerations
+
+- **Simulated Data**: This implementation uses images to simulate SPI measurements
+- **Real Hardware**: For actual single-pixel cameras, modify data loader to accept measurement vectors
+- **Batch Size**: Small batches (2-8) recommended for regularization
+- **Learning Rate**: Default 0.0001 optimized for toy dataset; adjust for different data
 
 ### Model Architecture Constraints
 
-- **Input size**: Models expect 64x64 pixel images (hardcoded)
-- **Fully connected layers**: Input feature counts depend on image size
-  - If using different input sizes, modify FC layer dimensions in encoder
-- **Keypoint count**: Default is 13, but configurable via `--num_keypoints`
-
-### COCO Evaluation
-
-- **kpt_oks_sigmas**: Contains empirically calculated values for 17 keypoints
-- For accurate evaluation:
-  - Use original 17 keypoints, OR
-  - Modify `kpt_oks_sigmas` to match your keypoint configuration
+- **Measurement Resolution**: Models expect 64×64 measurement patterns (4096 or 1024 measurements)
+- **Fully Connected Layers**: Dimensions depend on number of measurements
+  - `reduce=False`: 4096 measurements → fc(4096, 1024)
+  - `reduce=True`: 1024 measurements → fc(1024, 1024)
+- **Keypoint Count**: Default 13, configurable via `--num_keypoints`
 
 ### Best Practices
 
-1. **Small Batch Training**: Small batch sizes add noise that improves model robustness
-2. **Overfitting Test**: Before full training, verify the model can overfit a small subset (5-10 images)
-   - Confirms no bugs in code
-   - Validates that the model has sufficient capacity
-3. **Validation Set**: Currently uses training set for validation (TODO)
-   - For production use, create separate validation/test sets
+1. **Overfitting Test**: Verify model can overfit small subset (5-10 samples)
+2. **Measurement Reduction**: Start with full measurements, then experiment with `reduce=True`
+3. **Pattern Learning**: Monitor CustomConv weights to see learned sampling patterns
+4. **Privacy Validation**: Verify that reconstructing images from features is not feasible
 
-### Reproducibility
+## Comparison: Traditional vs Single-Pixel Imaging
 
-Training uses fixed random seeds and deterministic settings:
-```python
-torch.manual_seed(0)
-torch.backends.cudnn.deterministic = True
-torch.backends.cudnn.benchmark = False
-```
-
-## Visualization
-
-The `utils.py` module provides keypoint visualization:
-
-```python
-from utils import draw_keypoints
-
-result_img = draw_keypoints(
-    pred_keypoints=predictions,
-    gt_keypoints=ground_truth,
-    images=images
-)
-```
-
-**Color coding**:
-- Red circles: Ground truth keypoints
-- Green circles: Predicted keypoints
-- Blue lines: Ground truth skeleton
-- Cyan lines: Predicted skeleton
+| Aspect | Traditional Camera | Single-Pixel Imaging (This Work) |
+|--------|-------------------|----------------------------------|
+| **Sensor** | Megapixel array | Single photodetector |
+| **Spatial Resolution** | High (megapixels) | Determined by # measurements |
+| **Privacy** | ❌ Full image captured | ✅ No image reconstruction |
+| **Cost** | Higher (sensor array) | Lower (single detector) |
+| **Speed** | Fast (parallel capture) | Slower (sequential patterns) |
+| **Use Case** | General vision | Privacy-critical pose estimation |
+| **Wavelength Range** | Visible light | Infrared, terahertz, X-ray possible |
 
 ## Troubleshooting
 
 ### CUDA Out of Memory
 
-Reduce batch size:
 ```bash
-python train.py --batch 2
+python train.py --batch 2  # Reduce batch size
 ```
 
-### Different Input Size
+### Different Number of Measurements
 
-Modify the fully connected layer dimensions in the encoder:
-- Open `models/model_grayscale_input.py` or `models/model_grayscale_keypointrcnn.py`
-- Update `nn.Linear(input_features, output_features)` based on your image size
+To use different measurement patterns (e.g., 32×32):
+
+1. Modify `CustomConv` weight size in `models/model_grayscale_input.py`
+2. Update encoder FC layer input dimensions
+3. Adjust data loader to provide correct measurement size
 
 ### Custom Keypoint Configuration
 
-Ensure consistency across:
-1. Dataset annotations (`num_keypoints` in JSON)
-2. Command-line argument `--num_keypoints`
-3. COCO evaluation `kpt_oks_sigmas` (if using COCO eval)
+Ensure consistency:
+1. Dataset annotations: correct number of keypoints
+2. Model: `--num_keypoints` argument
+3. COCO eval: matching `kpt_oks_sigmas` (if using COCO evaluation)
 
 ## Contributing
 
-Contributions are welcome! Please:
+Contributions welcome! Areas of interest:
 
+- Real single-pixel hardware integration
+- Alternative sampling patterns (Fourier, random, learned)
+- Measurement reduction techniques
+- Privacy analysis and guarantees
+- Multi-person pose estimation
+- Temporal modeling for video
+
+Please:
 1. Fork the repository
-2. Create a feature branch (`git checkout -b feature/amazing-feature`)
-3. Commit your changes (`git commit -m 'Add amazing feature'`)
-4. Push to the branch (`git push origin feature/amazing-feature`)
-5. Open a Pull Request
+2. Create a feature branch
+3. Commit changes
+4. Open a Pull Request
 
 ## License
 
@@ -348,9 +477,31 @@ This project is available for research and educational purposes.
 
 ## Citation
 
-If you use this code in your research, please cite this repository.
+If you use this code in your research, please cite the paper:
+
+```bibtex
+@article{pose-spi,
+  title={Image-free single-pixel keypoint detection for privacy preserving human pose estimation},
+  author={[Authors]},
+  journal={[Journal/Conference]},
+  year={[Year]}
+}
+```
 
 ## Acknowledgments
 
-- EfficientNet implementation based on [EfficientNet: Rethinking Model Scaling for Convolutional Neural Networks](https://arxiv.org/abs/1905.11946)
-- COCO evaluation tools adapted from [pycocotools](https://github.com/cocodataset/cocoapi)
+- FSRCNN architecture: [Accelerating the Super-Resolution Convolutional Neural Network](https://arxiv.org/abs/1608.00367)
+- EfficientNet: [Rethinking Model Scaling for Convolutional Neural Networks](https://arxiv.org/abs/1905.11946)
+- COCO evaluation tools: [pycocotools](https://github.com/cocodataset/cocoapi)
+- Single-pixel imaging community for foundational research
+
+## Related Work
+
+- **Compressed Sensing**: Mathematical foundation for reconstruction from fewer measurements
+- **Computational Imaging**: Broader field of using computation to enhance imaging
+- **Privacy-Preserving Computer Vision**: Alternative approaches using encryption, federated learning
+- **Structured Illumination**: Techniques for pattern projection and sensing
+
+---
+
+**Note**: This repository demonstrates privacy-preserving pose estimation using single-pixel imaging principles. The privacy benefits are inherent to the single-pixel sensing approach, where detailed visual information is never captured by the hardware sensor.

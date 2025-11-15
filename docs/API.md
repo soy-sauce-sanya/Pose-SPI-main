@@ -1,6 +1,10 @@
 # API Documentation
 
+**Privacy-Preserving Keypoint Detection via Single-Pixel Imaging**
+
 This document provides detailed API documentation for the Pose-SPI project's core modules and functions.
+
+> **Note**: This project implements **single-pixel imaging** for privacy-preserving pose estimation. The "images" in this implementation are simulations of single-pixel measurements arranged in 64×64 patterns. In real hardware, these would be measurement vectors from a single-pixel camera using structured illumination patterns (e.g., Hadamard patterns). See [ARCHITECTURE.md](ARCHITECTURE.md) for details on the single-pixel imaging approach.
 
 ## Table of Contents
 

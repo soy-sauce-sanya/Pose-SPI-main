@@ -1,506 +1,386 @@
 # Architecture Documentation
 
-This document provides an in-depth explanation of the Pose-SPI architecture, design decisions, and implementation details.
+## Single-Pixel Imaging for Privacy-Preserving Pose Estimation
+
+This document provides an in-depth explanation of the Pose-SPI architecture, focusing on how it enables keypoint detection from single-pixel measurements without reconstructing full images.
 
 ## Table of Contents
 
 - [Overview](#overview)
-- [Pipeline Flow](#pipeline-flow)
-- [Model Architectures](#model-architectures)
+- [Single-Pixel Imaging Principles](#single-pixel-imaging-principles)
+- [Architecture Pipeline](#architecture-pipeline)
 - [Component Details](#component-details)
-- [Design Decisions](#design-decisions)
+- [Privacy-Preserving Design](#privacy-preserving-design)
 - [Performance Considerations](#performance-considerations)
 
 ---
 
 ## Overview
 
-Pose-SPI implements human keypoint detection from grayscale 64×64 images using deep learning. The project offers two model variants:
+Pose-SPI implements privacy-preserving human keypoint detection using **single-pixel imaging (SPI)**. Unlike traditional computer vision systems that capture full images, this approach:
 
-1. **Simple Model**: Lightweight CNN-based detector
-2. **EfficientNet Model**: Pretrained backbone with RCNN-style head
+1. **Captures**: Aggregate light measurements using a single photodetector
+2. **Processes**: Measurements through specialized neural networks
+3. **Extracts**: Human keypoints directly without image reconstruction
+4. **Preserves**: Privacy by never forming complete visual images
 
-Both models share a common encoder-decoder architecture with a specialized upsampling module (FSRCNN) but differ in their keypoint detection heads.
+### Key Innovation
 
----
+The architecture enables **direct task learning** from single-pixel measurements, bypassing the traditional two-step process of:
+1. ❌ Image reconstruction (privacy-invasive)
+2. ❌ Feature extraction from reconstructed image
 
-## Pipeline Flow
-
-### High-Level Data Flow
-
-```
-Input Image (RGB 64×64)
-    ↓
-Grayscale Conversion (1 channel)
-    ↓
-┌─────────────────────────────────┐
-│  ENCODER                         │
-│  - CustomConv (1→64 channels)   │
-│  - MaxPool (64×64 → 32×32)      │
-│  - FC (flatten → 512 → 256)     │
-└─────────────────────────────────┘
-    ↓ Feature Vector (256)
-┌─────────────────────────────────┐
-│  FSRCNN (Upsampling)            │
-│  - Feature Extraction            │
-│  - Mapping Layers                │
-│  - Deconvolution                 │
-│  - Expansion                     │
-└─────────────────────────────────┘
-    ↓ Feature Map (64, 64, 64)
-┌─────────────────────────────────┐
-│  DETECTION HEAD (two variants)   │
-│                                  │
-│  Simple Model:                   │
-│  - SimpleCNN                     │
-│    (Conv → AvgPool × 2)         │
-│                                  │
-│  EfficientNet Model:             │
-│  - Transition Conv (64→3)        │
-│  - EfficientNet Backbone         │
-│  - KeypointPredictor (FC)        │
-└─────────────────────────────────┘
-    ↓
-Output: Keypoints (N × 3)
-[x, y, visibility] for each keypoint
-```
+Instead, it performs:
+1. ✅ Direct feature extraction from measurements
+2. ✅ Task-specific (keypoint) prediction
 
 ---
 
-## Model Architectures
+## Single-Pixel Imaging Principles
 
-### Model 1: Simple Keypoint Detector
+### What Are Single-Pixel Measurements?
 
-**File**: `models/model_grayscale_input.py`
+In single-pixel imaging:
 
-**Philosophy**: Minimalist architecture designed for efficiency and interpretability.
-
-#### Architecture Breakdown
-
-```python
-KeypointDetection(
-    Encoder(
-        CustomConv(1 → 64)
-        MaxPool2d(kernel_size=2)
-        Flatten()
-        Linear(64*32*32 → 512)
-        ReLU()
-        Linear(512 → 256)
-    ),
-    FSRCNN(
-        # Feature extraction
-        Conv2d(256 → 64, kernel=3)
-        BatchNorm2d(64)
-        ReLU()
-
-        # Mapping (repeated 3 times)
-        Conv2d(64 → 64, kernel=3)
-        BatchNorm2d(64)
-        ReLU()
-
-        # Deconvolution (upsampling)
-        Upsample(scale_factor=2, mode='bilinear')
-        Conv2d(64 → 64, kernel=3)
-
-        # Expansion
-        Conv2d(64 → 64, kernel=1)
-    ),
-    SimpleCNN(
-        Conv2d(64 → 32, kernel=3, padding=1)
-        ReLU()
-        AvgPool2d(kernel_size=2)
-
-        Conv2d(32 → num_keypoints*3, kernel=3, padding=1)
-        ReLU()
-        AvgPool2d(kernel_size=32)
-
-        Reshape → (batch, num_keypoints, 3)
-    )
-)
+```
+┌─────────────────────────────────────────┐
+│  Scene Illumination & Measurement       │
+├─────────────────────────────────────────┤
+│                                         │
+│  Pattern 1: ▓░▓░▓░▓░  →  Detector  →  m₁│
+│  Pattern 2: ▓▓░░▓▓░░  →  Detector  →  m₂│
+│  Pattern 3: ░▓▓░░▓▓░  →  Detector  →  m₃│
+│  ...                                    │
+│  Pattern N: ▓░░▓▓░▓░  →  Detector  →  mₙ│
+│                                         │
+│  Measurement Vector: [m₁, m₂, ..., mₙ] │
+└─────────────────────────────────────────┘
 ```
 
-**Parameters**: ~3-5M (depending on num_keypoints)
+Each measurement is the **scalar dot product** of:
+- **Illumination pattern**: Spatial distribution of light
+- **Scene reflectance**: How scene reflects light
 
-**Advantages**:
-- Fast inference (~5-10ms on GPU)
-- Low memory footprint
-- Easy to understand and modify
-- No dependency on pretrained weights
+Mathematically: `measurement_i = ⟨pattern_i, scene⟩ + noise`
 
-**Limitations**:
-- Limited feature extraction capacity
-- May struggle with complex poses
-- Requires more data to generalize
+### Hadamard Patterns
+
+This implementation uses **Hadamard-inspired patterns** for measurements:
+
+**Properties**:
+- **Orthogonal**: Patterns are statistically independent
+- **Binary**: +1 (light) or -1 (no light) values
+- **Optimal**: Maximize signal-to-noise ratio
+- **Complete**: Set of N² patterns can fully describe N×N scene
+
+**In Pose-SPI**:
+- 64×64 resolution → up to 4096 measurements
+- CustomConv layer simulates Hadamard multiplication
+- Learnable patterns adapt to keypoint detection task
 
 ---
 
-### Model 2: EfficientNet-based Detector
+## Architecture Pipeline
 
-**File**: `models/model_grayscale_keypointrcnn.py`
+### High-Level Flow
 
-**Philosophy**: Leverage pretrained features for improved accuracy.
-
-#### Architecture Breakdown
-
-```python
-KeypointDetection(
-    Encoder(
-        # Same as Model 1
-        CustomConv(1 → 64)
-        MaxPool2d(kernel_size=2)
-        Flatten()
-        Linear(64*32*32 → 512)
-        ReLU()
-        Linear(512 → 256)
-    ),
-    FSRCNN(
-        # Same as Model 1
-        # Upsamples to (batch, 64, 64, 64)
-    ),
-    # Transition to RGB-like format
-    Conv2d(64 → 3, kernel=1),
-
-    KeypointRCNN(
-        EfficientNet-B0(
-            # Pretrained on ImageNet
-            # Modified first conv for grayscale compatibility
-            MBConv blocks × 16
-            # Output: (batch, 1280) features
-        )
-    ),
-    KeypointPredictor(
-        Linear(1280 → 512)
-        ReLU()
-        Dropout(0.3)
-        Linear(512 → 256)
-        ReLU()
-        Dropout(0.3)
-        Linear(256 → num_keypoints*3)
-        Reshape → (batch, num_keypoints, 3)
-    )
-)
+```
+Single-Pixel Measurements
+(simulated as 64×64 grayscale in this implementation)
+          ↓
+┌─────────────────────────────┐
+│  CustomConv                 │
+│  Simulates Hadamard product │
+│  Learnable patterns         │
+└─────────────────────────────┘
+          ↓
+┌─────────────────────────────┐
+│  Encoder                    │
+│  Extract features from      │
+│  measurements (not images!) │
+└─────────────────────────────┘
+          ↓
+Feature Vector (1024-dim)
+          ↓
+┌─────────────────────────────┐
+│  FSRCNN                     │
+│  Upsample feature space     │
+│  (NOT image reconstruction) │
+└─────────────────────────────┘
+          ↓
+Spatial Feature Map (64×64)
+          ↓
+┌──────────────────────────────────┐
+│  Detection Head (two variants)   │
+│  ├─ SimpleCNN                    │
+│  └─ EfficientNet + Predictor     │
+└──────────────────────────────────┘
+          ↓
+Keypoints (N × 3)
+[x, y, visibility]
 ```
 
-**Parameters**: ~10-15M (mostly from EfficientNet)
+### Key Difference from Traditional Vision
 
-**Advantages**:
-- Better feature representations from pretrained backbone
-- Higher accuracy on complex poses
-- Transfer learning benefits
-
-**Limitations**:
-- Slower inference (~20-30ms on GPU)
-- Higher memory usage
-- More complex architecture
-- Requires GPU for practical use
+| Traditional CV | Pose-SPI (Single-Pixel) |
+|----------------|-------------------------|
+| Image sensor → CNN | Measurements → CustomConv |
+| Features from spatial pixels | Features from measurement patterns |
+| Image = 2D spatial data | "Image" = arranged measurements |
+| Conv layers process spatial neighborhoods | Conv layers process measurement correlations |
 
 ---
 
 ## Component Details
 
-### CustomConv
+### 1. CustomConv: Hadamard Pattern Simulation
 
-**Purpose**: Learnable weight multiplication or convolution with optional upsampling.
+**Purpose**: Simulate the measurement process in single-pixel imaging
 
-**Design Choice**: Provides flexibility in feature transformation while maintaining computational efficiency.
+**Code**: `models/model_grayscale_input.py:5-30`
+
+#### Architecture
 
 ```python
 class CustomConv(nn.Module):
-    def __init__(self, input_channels, output_channels, upsample=False):
-        self.weight = nn.Parameter(torch.randn(output_channels, input_channels, 1, 1))
-        self.upsample = upsample
+    def __init__(self, product=True):
+        self.weight = nn.Parameter(torch.Tensor(1, 1, 64, 64))
+        # Learnable 64×64 pattern (like Hadamard patterns)
 
     def forward(self, x):
-        x = x * self.weight  # Element-wise multiplication
-        if self.upsample:
-            x = F.interpolate(x, scale_factor=2, mode='bilinear')
-        return x
+        if product:
+            out = self.weight.mul(x)  # Element-wise multiplication
+        else:
+            out = self.conv(x)  # Standard convolution
 ```
 
-**Key Features**:
-- Lightweight (minimal parameters)
-- Optional bilinear upsampling
-- Acts as learnable gating mechanism
+#### Single-Pixel Interpretation
+
+**When `product=True` (Hadamard mode)**:
+- Simulates pattern-based measurement: `y = pattern ⊙ measurements`
+- Learnable weights act as **adaptive sampling patterns**
+- Network learns optimal patterns for keypoint detection
+
+**When `product=False` (Convolution mode)**:
+- Falls back to standard convolution
+- Useful for comparison with traditional approaches
+
+#### Why This Design?
+
+1. **Flexibility**: Patterns learned end-to-end for task
+2. **Efficiency**: Single multiplication operation
+3. **Interpretability**: Can visualize learned patterns
+4. **Biological plausibility**: Similar to retinal sampling
 
 ---
 
-### Encoder
+### 2. Encoder: Measurement Feature Extraction
 
-**Purpose**: Compress spatial information while extracting semantic features.
+**Purpose**: Extract semantic features from single-pixel measurements
 
-**Architecture Stages**:
+**Code**: `models/model_grayscale_input.py:32-62`
 
-1. **Stage 1 - Initial Feature Extraction**
-   - Input: (batch, 1, 64, 64)
-   - CustomConv: Increases channels to 64
-   - Output: (batch, 64, 64, 64)
+#### Architecture Stages
 
-2. **Stage 2 - Spatial Reduction**
-   - MaxPool: Reduces to (batch, 64, 32, 32)
-   - Preserves important features via max operation
+```python
+# Stage 1: Pattern processing
+CustomConv(product=True)  # Simulates Hadamard sampling
+# Output: (batch, 1, 64, 64) "arranged measurements"
 
-3. **Stage 3 - Feature Embedding**
-   - Flatten: (batch, 64*32*32) = (batch, 65536)
-   - FC1: 65536 → 512 (dimensionality reduction)
-   - ReLU activation
-   - FC2: 512 → 256 (compact representation)
-   - Output: (batch, 256)
+# Stage 2: Optional measurement reduction
+MaxPool2d(kernel_size=2)  # Simulates fewer measurements
+# Output: (batch, 1, 32, 32) if reduce=True
 
-**Design Rationale**:
-- Early convolution preserves spatial structure
-- Max pooling provides translation invariance
-- FC layers create compact semantic embedding
-- 256-dim bottleneck balances expressiveness and efficiency
+# Stage 3: Feature embedding
+Flatten()
+Linear(4096 → 1024) or Linear(1024 → 1024)  # Depends on reduce
+# Output: (batch, 1024) feature vector
 
----
+# Stage 4: Spatial arrangement
+Reshape → (batch, 1, 32, 32)
+```
 
-### FSRCNN (Fast Super-Resolution CNN)
+#### Measurement Reduction
 
-**Purpose**: Upsample compact feature vectors back to spatial feature maps suitable for keypoint localization.
+The `reduce` parameter simulates different measurement counts:
 
-**Inspired by**: [FSRCNN paper](https://arxiv.org/abs/1608.00367) for image super-resolution
+**reduce=False** (default):
+- Uses all 64×64 = 4096 measurements
+- fc: 4096 → 1024
+- Higher accuracy, more measurements needed
 
-**Why FSRCNN for Keypoints?**
-- Preserves fine spatial details during upsampling
-- Learned upsampling outperforms simple interpolation
-- Mapping layers refine features before spatial expansion
+**reduce=True**:
+- Uses 32×32 = 1024 measurements (via MaxPooling)
+- fc: 1024 → 1024
+- Faster acquisition, slightly lower accuracy
 
-**Architecture Stages**:
-
-1. **Feature Extraction**
-   ```python
-   Linear(256 → 64*4*4) → Reshape to (batch, 64, 4, 4)
-   Conv2d(64 → 64, kernel=3, padding=1)
-   BatchNorm2d + ReLU
-   ```
-
-2. **Mapping Layers** (repeated multiple times)
-   ```python
-   Conv2d(64 → 64, kernel=3, padding=1)
-   BatchNorm2d + ReLU
-   ```
-   - Refine features in feature space
-   - Multiple layers increase receptive field
-
-3. **Deconvolution** (Upsampling)
-   ```python
-   Upsample(scale_factor=2, mode='bilinear')  # 4×4 → 8×8
-   Conv2d(64 → 64, kernel=3, padding=1)
-   # Repeated for 8×8 → 16×16 → 32×32 → 64×64
-   ```
-
-4. **Expansion**
-   ```python
-   Conv2d(64 → 64, kernel=1)
-   ```
-   - Final channel adjustment
-   - 1×1 conv acts as learned combination
-
-**Output**: (batch, 64, 64, 64) - rich spatial feature map
+**Physical Interpretation**:
+- In real hardware: Fewer patterns shown, faster capture
+- In this simulation: MaxPooling downsamples measurement grid
 
 ---
 
-### SimpleCNN (Simple Model Head)
+### 3. FSRCNN: Feature Space Upsampling
 
-**Purpose**: Convert feature maps to keypoint coordinates.
+**Purpose**: Expand compact features to spatial representations for keypoint localization
+
+**Code**: `models/model_grayscale_input.py:65-100`
+
+#### Important: This is NOT Image Reconstruction
+
+Common misconception: FSRCNN reconstructs images
+**Reality**: FSRCNN upsamples **feature representations**
+
+```
+NOT THIS:                      BUT THIS:
+Measurements → Image          Measurements → Features
+                                             ↓
+                                    Upsample Features
+                                             ↓
+                                       Keypoints
+```
+
+#### Architecture
+
+```python
+# Feature Extraction
+Conv2d(1 → 56, kernel=5)  # Extract patterns from features
+BatchNorm + ReLU
+
+# Mapping (4 layers)
+Conv2d(56 → 12, kernel=3)  # Refine features
+Conv2d(12 → 12, kernel=3)  # Multiple layers
+Conv2d(12 → 12, kernel=3)  # increase receptive field
+Conv2d(12 → 12, kernel=3)
+
+# Upsampling
+UpsamplingBilinear2d(32×32 → 64×64)  # Spatial expansion
+
+# Expansion
+Conv2d(12 → 1, kernel=3)  # Output feature map
+```
+
+#### Why FSRCNN for SPI?
+
+1. **Spatial Localization**: Keypoints need spatial positions
+2. **Feature Preservation**: Maintains measurement information
+3. **Efficient**: Originally designed for super-resolution
+4. **Privacy-Preserving**: Upsamples features, not images
+
+---
+
+### 4. Detection Heads
+
+#### Model 1: SimpleCNN
+
+**Code**: `models/model_grayscale_input.py:103-125`
 
 **Architecture**:
-
 ```python
-# Layer 1: Feature refinement
-Conv2d(64 → 32, kernel=3, padding=1)  # Preserve spatial size
-ReLU()
-AvgPool2d(kernel_size=2)  # 64×64 → 32×32
+Conv2d(1 → 64, kernel=3)
+ReLU + AvgPool2d(2)  # 64×64 → 32×32
 
-# Layer 2: Keypoint prediction
-Conv2d(32 → num_keypoints*3, kernel=3, padding=1)
-ReLU()
-AvgPool2d(kernel_size=32)  # 32×32 → 1×1 global pooling
+Conv2d(64 → 128, kernel=3)
+ReLU + AvgPool2d(2)  # 32×32 → 16×16
 
-# Reshape
-Reshape to (batch, num_keypoints, 3)
+Flatten
+Linear(128×16×16 → 512)
+ReLU
+Linear(512 → num_keypoints × 3)
 ```
 
-**Design Choices**:
-- **Average pooling**: Provides smoother gradients than max pooling
-- **3 channels per keypoint**: [x, y, visibility]
-- **Global average pooling**: Acts as spatial averaging, making predictions robust to small translations
-- **Lightweight**: Only 2 conv layers minimize overfitting
+**Characteristics**:
+- Lightweight: ~5M parameters
+- Fast inference: ~5-10ms on GPU
+- Good for real-time SPI systems
+- Direct regression to keypoint coordinates
 
-**Output Format**:
-- Shape: (batch, num_keypoints, 3)
-- Values: Continuous coordinates (x, y) and visibility score
+#### Model 2: EfficientNet + Predictor
 
----
-
-### EfficientNet Backbone
-
-**Purpose**: Extract powerful features using pretrained representations.
-
-**EfficientNet-B0 Architecture**:
-- **Compound Scaling**: Balances depth, width, and resolution
-- **MBConv Blocks**: Mobile Inverted Bottleneck Convolution
-- **Squeeze-and-Excitation**: Adaptive channel-wise feature recalibration
-
-**Modifications for Pose-SPI**:
-
-```python
-# Original: 3-channel RGB input
-# Modified: 1-channel grayscale input (handled by transition conv 64→3)
-
-# After transition conv, standard EfficientNet processes:
-efficientnet_b0(
-    # 16 MBConv blocks with varying expansion ratios
-    # Progressive feature refinement
-    # Output: (batch, 1280) feature vector
-)
-```
-
-**Pretrained Weights**:
-- Trained on ImageNet (1000 classes, millions of images)
-- Learned general visual features (edges, textures, shapes)
-- Transfer learning accelerates convergence
-
-**Fine-tuning Strategy**:
-- All layers trainable (full fine-tuning)
-- Can freeze early layers for faster training
-- Dropout in predictor prevents overfitting
-
----
-
-### KeypointPredictor (EfficientNet Model Head)
-
-**Purpose**: Regression head to map EfficientNet features to keypoint coordinates.
+**Code**: `models/model_grayscale_keypointrcnn.py`
 
 **Architecture**:
-
 ```python
-Linear(1280 → 512)
-ReLU()
-Dropout(0.3)
+# Transition: Feature map → RGB-like
+Conv2d(1 → 3, kernel=1)
 
-Linear(512 → 256)
-ReLU()
-Dropout(0.3)
+# EfficientNet-B0 backbone
+EfficientNet(pretrained=True)
+# Output: 1280-dim feature vector
 
-Linear(256 → num_keypoints*3)
-Reshape to (batch, num_keypoints, 3)
+# Keypoint Predictor
+Linear(1280 → 512) + ReLU + Dropout(0.3)
+Linear(512 → 256) + ReLU + Dropout(0.3)
+Linear(256 → num_keypoints × 3)
 ```
 
-**Design Choices**:
-- **Fully connected**: Learns global relationships between features and keypoints
-- **Progressive reduction**: 1280 → 512 → 256 → output
-- **Dropout**: Prevents overfitting (p=0.3)
-- **ReLU activations**: Non-linear transformations
-
-**Why FC Layers?**
-- EfficientNet already provides spatial features
-- Keypoint positions depend on global context
-- FC layers excel at learning these global relationships
+**Characteristics**:
+- Higher capacity: ~15M parameters
+- Pretrained features (adapted for SPI)
+- Better accuracy on complex poses
+- More computationally intensive
 
 ---
 
-## Design Decisions
+## Privacy-Preserving Design
 
-### Why Two Models?
+### How Privacy is Maintained
 
-**Simple Model**:
-- **Use Case**: Real-time applications, embedded systems, limited compute
-- **Trade-off**: Speed vs. accuracy
-- **Best For**: Simple poses, controlled environments
+#### 1. **Hardware Level**: Single-Pixel Sensor
 
-**EfficientNet Model**:
-- **Use Case**: High-accuracy requirements, offline processing
-- **Trade-off**: Accuracy vs. speed/memory
-- **Best For**: Complex poses, varied conditions
-
-### Why 64×64 Input?
-
-**Rationale**:
-1. **Computational Efficiency**: Smaller input = faster processing
-2. **Dataset Constraint**: Toy dataset uses 64×64 images
-3. **Sufficient Resolution**: Human keypoints identifiable at this scale
-4. **Memory**: Fits larger batches in GPU memory
-
-**Trade-offs**:
-- Limited spatial precision
-- May miss fine details
-- **Note**: Production systems often use 256×256 or larger
-
-### Why Grayscale?
-
-**Advantages**:
-1. **Fewer Parameters**: 1 channel vs. 3 channels (3× reduction in first layer)
-2. **Faster Training**: Less data to process
-3. **Sufficient Information**: Keypoint detection relies more on shape than color
-4. **Robustness**: Invariant to color variations
-
-**Considerations**:
-- Color can provide useful cues (clothing, background)
-- Pretrained models expect RGB (handled via transition conv)
-
-### Loss Functions
-
-#### Simple Model: MSE Loss
-
-```python
-criterion = nn.MSELoss()
-loss = criterion(predictions, ground_truth)
+```
+Traditional Camera:           Single-Pixel Camera:
+Each pixel sees               Single detector sees
+small spatial region    VS.   integrated light
+→ Can form image             → Cannot form image
+                               without all patterns
 ```
 
-**Why MSE?**
-- Natural choice for coordinate regression
-- Directly minimizes Euclidean distance
-- Smooth gradients
+#### 2. **Measurement Level**: Structured Patterns
 
-**Limitations**:
-- Treats all keypoints equally
-- Sensitive to outliers
+- Measurements are **linear combinations** of scene
+- Individual measurements reveal **global, not local** information
+- Example: `m₁ = 0.3×pixel₁ + 0.7×pixel₂ + 0.1×pixel₃ + ...`
+  - Cannot identify specific objects from m₁ alone
 
-#### EfficientNet Model: Smooth L1 Loss
+#### 3. **Algorithmic Level**: Direct Task Learning
 
-```python
-criterion = KeypointRCNNLoss(loss_type='smooth_l1')
-loss = criterion(predictions, targets)
+```
+Privacy-Invasive:
+Measurements → Image Reconstruction → Feature Extraction → Keypoints
+                      ↑
+                Privacy leak!
+
+Privacy-Preserving (Pose-SPI):
+Measurements → Feature Extraction → Keypoints
+                    ↑
+            No image formation!
 ```
 
-**Why Smooth L1?**
-- Less sensitive to outliers than MSE
-- Smooth gradients near zero (L2-like)
-- Linear for large errors (L1-like)
+#### 4. **Network Design**: No Reconstruction Pathway
 
-**Formula**:
-```
-smooth_l1(x) = 0.5 * x^2     if |x| < 1
-               |x| - 0.5     otherwise
-```
+Key architectural choices:
+- **No decoder to image space**: FSRCNN upsamples features, not images
+- **Task-specific heads**: Direct keypoint regression
+- **No intermediate visualizations**: Cannot "see" what network sees
 
-### Optimizer Choice: SGD
+### Privacy Analysis
 
-```python
-optimizer = torch.optim.SGD(model.parameters(), lr=0.0001)
-```
+**What can be recovered?**
+- ✅ Keypoint positions (intended)
+- ✅ Approximate pose (intended)
 
-**Why SGD (not Adam)?**
-1. **Small Batch Training**: SGD with small batches provides beneficial noise
-2. **Better Generalization**: Often generalizes better than Adam
-3. **Stability**: More stable for small datasets
+**What cannot be recovered?**
+- ❌ Facial features
+- ❌ Identity information
+- ❌ Clothing details
+- ❌ Background/environment
+- ❌ Text or fine details
 
-**Considerations**:
-- Slower convergence than Adam
-- Requires careful learning rate tuning
-- May benefit from momentum (can be added)
-
-### Batch Size: 4 (Default)
-
-**Why Small Batches?**
-1. **Regularization**: Adds noise to gradients (like dropout)
-2. **Memory**: Fits in smaller GPUs
-3. **Small Dataset**: 100 images → batches of 4 = 25 iterations/epoch
-
-**Scaling Up**:
-- Larger datasets can use batch sizes 16-64
-- Adjust learning rate proportionally (linear scaling rule)
+**Threat Model**:
+- Adversary with full model access
+- Adversary with all measurements
+- **Still cannot reconstruct identifying information** without specialized reconstruction algorithms and all measurement patterns
 
 ---
 
@@ -510,185 +390,214 @@ optimizer = torch.optim.SGD(model.parameters(), lr=0.0001)
 
 #### Simple Model
 
-| Component | FLOPs | Parameters |
-|-----------|-------|------------|
-| Encoder | ~130M | ~33M |
-| FSRCNN | ~180M | ~0.5M |
-| SimpleCNN | ~25M | ~0.05M |
-| **Total** | **~335M** | **~33.5M** |
-
-**Inference Time**:
-- GPU (NVIDIA RTX 3080): ~5-8ms
-- CPU (Intel i7): ~50-80ms
+| Component | Operations | Parameters |
+|-----------|------------|------------|
+| CustomConv | 4K (element-wise) | 4096 |
+| Encoder FC | 4M - 1M | 4M |
+| FSRCNN | ~50M | 150K |
+| SimpleCNN | ~100M | 2M |
+| **Total** | **~150M FLOPs** | **~6M params** |
 
 #### EfficientNet Model
 
-| Component | FLOPs | Parameters |
-|-----------|-------|------------|
-| Encoder | ~130M | ~33M |
-| FSRCNN | ~180M | ~0.5M |
-| EfficientNet | ~400M | ~5.3M |
-| Predictor | ~2M | ~0.5M |
-| **Total** | **~712M** | **~39.3M** |
+| Component | Operations | Parameters |
+|-----------|------------|------------|
+| CustomConv | 4K | 4096 |
+| Encoder FC | 4M - 1M | 4M |
+| FSRCNN | ~50M | 150K |
+| EfficientNet | ~400M | 5.3M |
+| Predictor | ~2M | 500K |
+| **Total** | **~460M FLOPs** | **~10M params** |
 
-**Inference Time**:
-- GPU (NVIDIA RTX 3080): ~15-25ms
-- CPU (Intel i7): ~200-300ms
+### Measurement Acquisition Time
 
-### Memory Usage
+For real single-pixel hardware:
 
-**Simple Model**:
-- Model: ~130 MB
-- Batch (size 4): ~50 MB
-- Total: ~180 MB
+**Factors**:
+- Pattern projection speed
+- Detector integration time
+- Pattern switching time
 
-**EfficientNet Model**:
-- Model: ~160 MB
-- Batch (size 4): ~80 MB
-- Total: ~240 MB
+**Example** (DMD-based system):
+- Pattern rate: 20 kHz
+- 4096 measurements: 0.2 seconds
+- 1024 measurements: 0.05 seconds (20 FPS)
 
-### Optimization Opportunities
+**Trade-off**:
+```
+More measurements ↔ Better accuracy
+Fewer measurements ↔ Faster acquisition
+```
 
-1. **Model Quantization**:
-   - INT8 quantization → 4× size reduction
-   - ~2× speedup with minimal accuracy loss
+### Memory Requirements
 
-2. **Pruning**:
-   - Remove redundant weights
-   - 20-40% speedup possible
+**Training**:
+- Simple model: ~500 MB (batch=4)
+- EfficientNet model: ~800 MB (batch=4)
 
-3. **Knowledge Distillation**:
-   - Train simple model to mimic EfficientNet
-   - Get EfficientNet accuracy at Simple model speed
-
-4. **ONNX Export**:
-   - Convert to ONNX for deployment
-   - Use TensorRT for GPU optimization
+**Inference**:
+- Simple model: ~25 MB
+- EfficientNet model: ~50 MB
 
 ---
 
-## Training Strategy
+## Design Decisions
 
-### Reproducibility
+### Why 64×64 Measurements?
 
-```python
-torch.manual_seed(0)
-torch.backends.cudnn.deterministic = True
-torch.backends.cudnn.benchmark = False
-```
+**Rationale**:
+1. **Sufficient for keypoints**: Coarse spatial resolution adequate for body parts
+2. **Practical hardware**: Achievable with DMD or SLM projectors
+3. **Computational efficiency**: Manageable feature dimensions
+4. **Privacy sweet spot**: Too few to reconstruct detailed images
 
-**Trade-offs**:
-- **Deterministic**: Same results on repeated runs
-- **Performance**: ~10% slower than non-deterministic mode
-- **Debugging**: Easier to identify bugs
+**Scaling**:
+- Fewer (32×32): Faster, less privacy risk, lower accuracy
+- More (128×128): Slower, potentially more privacy risk, higher accuracy
 
-### Overfitting Prevention
+### Why Hadamard Patterns?
 
-1. **Small Batch Sizes**: Acts as regularization
-2. **Dropout** (EfficientNet model): p=0.3 in predictor
-3. **Data Augmentation** (TODO): Rotations, flips, color jitter
-4. **Early Stopping** (TODO): Monitor validation loss
+**Alternatives considered**:
+1. **Random patterns**: Less structured, lower SNR
+2. **Fourier patterns**: Good for compression, complex hardware
+3. **Learned patterns**: Optimal for task (implemented via CustomConv!)
 
-### Validation Strategy
+**Chosen approach**: **Learnable Hadamard-like patterns**
+- Start with Hadamard-like structure (element-wise multiplication)
+- Let network adapt patterns for keypoint detection
+- Best of both worlds: structure + task optimization
 
-**Current**: Uses training set (suboptimal)
+### Why Direct Keypoint Learning?
 
-**Recommended**:
-```
-- Training: 70% of data
-- Validation: 15% of data
-- Test: 15% of data
-```
+**Alternative**: Two-stage approach
+1. Reconstruct image from measurements
+2. Apply standard pose estimation
 
-### Hyperparameter Tuning
+**Problems**:
+- ❌ Defeats privacy purpose
+- ❌ Computationally expensive
+- ❌ Error compounds across stages
 
-**Critical Hyperparameters**:
-
-| Parameter | Default | Tuning Range | Impact |
-|-----------|---------|--------------|--------|
-| Learning Rate | 0.0001 | 1e-5 to 1e-3 | High |
-| Batch Size | 4 | 2 to 16 | Medium |
-| Epochs | 1000 | 100 to 5000 | Low |
-| Num Keypoints | 13 | 13 to 17 | Structural |
-
-**Tuning Process**:
-1. Start with default values
-2. Verify model can overfit small subset (5-10 images)
-3. Tune learning rate (most important)
-4. Adjust batch size based on GPU memory
-5. Increase epochs until validation loss plateaus
+**Direct learning benefits**:
+- ✅ Maintains privacy
+- ✅ End-to-end optimization
+- ✅ Task-specific features
+- ✅ Fewer parameters
 
 ---
 
 ## Extending the Architecture
 
-### Adding More Keypoints
+### Adding More Measurements
 
-**Simple**: Change `--num_keypoints` argument
-
-**Considerations**:
-- Update COCO annotations to include new keypoints
-- Modify `kpt_oks_sigmas` for COCO evaluation
-- Larger output → slightly slower inference
-
-### Larger Input Images
-
-**Example**: 128×128 instead of 64×64
-
-**Required Changes**:
-
-1. **Encoder FC Layers**:
-   ```python
-   # models/model_grayscale_input.py
-   # Change: Linear(65536, 512)  # 64*32*32
-   # To:     Linear(262144, 512)  # 128*64*64
-   ```
-
-2. **Training Script**:
-   ```python
-   # No transform resize needed if images are already correct size
-   ```
-
-3. **FSRCNN Upsampling**:
-   - May need additional upsampling stages
-   - Or adjust intermediate sizes
-
-### Different Backbones
-
-**Replacing EfficientNet**:
+To use 128×128 measurements:
 
 ```python
-# Instead of EfficientNet-B0
-from torchvision.models import resnet18, resnet50, mobilenet_v2
+# models/model_grayscale_input.py
 
-# Example: ResNet18
-backbone = resnet18(pretrained=True)
-backbone.conv1 = nn.Conv2d(3, 64, kernel_size=7, stride=2, padding=3)
-# Remove final FC layer
-backbone = nn.Sequential(*list(backbone.children())[:-1])
+class CustomConv(nn.Module):
+    def __init__(self, product=True):
+        self.weight = nn.Parameter(torch.Tensor(1, 1, 128, 128))
+        # Change: 64→128
+
+class Encoder(nn.Module):
+    def __init__(self, product=False, reduce=False):
+        # ...
+        self.fc = nn.Linear(128*128, 1024)  # Change: 64*64→128*128
 ```
 
-**Options**:
-- **ResNet**: Better for deeper networks
-- **MobileNet**: Faster, more efficient
-- **Vision Transformer**: State-of-the-art accuracy
+### Different Sampling Patterns
+
+Replace CustomConv with specialized pattern generators:
+
+```python
+class FourierPatternConv(nn.Module):
+    """Use Fourier basis patterns instead of Hadamard"""
+    def __init__(self):
+        # Generate Fourier basis
+        # Apply frequency-domain sampling
+
+class RandomPatternConv(nn.Module):
+    """Use random patterns (compressed sensing)"""
+    def __init__(self):
+        # Generate random Gaussian patterns
+        # Exploits sparsity in keypoint space
+```
+
+### Multi-Person Detection
+
+Current limitation: Single-person assumption
+
+**Extension strategy**:
+1. Use region proposal network (RPN)
+2. Extract measurements per region
+3. Apply keypoint detector per region
+4. Aggregate results
+
+**Challenge**: Maintaining privacy with spatial localization
 
 ---
 
-## Future Improvements
+## Future Research Directions
 
-1. **Multi-Scale Features**: Combine features from multiple resolutions
-2. **Attention Mechanisms**: Focus on relevant body parts
-3. **Temporal Modeling**: For video inputs (LSTM/Transformer)
-4. **Heatmap Regression**: Predict heatmaps instead of coordinates
-5. **Multi-Person Detection**: Handle multiple people in one image
-6. **Data Augmentation**: Rotations, flips, color jitter, cutout
-7. **Advanced Loss Functions**: Perceptual loss, adversarial loss
+### 1. Measurement Reduction
+
+**Goal**: Detect keypoints with <1000 measurements
+
+**Approaches**:
+- Compressed sensing theory
+- Active measurement selection
+- Adaptive sampling patterns
+
+### 2. Privacy Guarantees
+
+**Goal**: Formal privacy bounds
+
+**Approaches**:
+- Information-theoretic analysis
+- Differential privacy framework
+- Reconstruction attack resistance
+
+### 3. Real Hardware Integration
+
+**Goal**: Deploy on actual single-pixel cameras
+
+**Challenges**:
+- Noise modeling
+- Calibration
+- Real-time pattern projection
+
+### 4. Multi-Task Learning
+
+**Goal**: Detect keypoints + activity + scene context
+
+**Approaches**:
+- Multi-head architectures
+- Shared feature extraction
+- Task-balancing losses
 
 ---
 
 ## Conclusion
 
-Pose-SPI provides a flexible framework for keypoint detection with two complementary architectures. The simple model offers speed and efficiency, while the EfficientNet model provides higher accuracy through transfer learning. Both share a common encoder-FSRCNN pipeline, making it easy to experiment with different detection heads.
+Pose-SPI demonstrates a novel paradigm for computer vision:
 
-The architecture is designed for research and prototyping, with clear extension points for production deployment or advanced research.
+**Traditional**: Capture everything → Extract what's needed
+**Pose-SPI**: Measure what's needed → Preserve privacy
+
+The architecture carefully balances:
+- **Performance**: Accurate keypoint detection
+- **Privacy**: No image reconstruction
+- **Efficiency**: Practical measurement counts
+- **Flexibility**: Adaptable to different hardware
+
+This privacy-by-design approach opens new applications in healthcare, smart homes, and other sensitive domains where traditional cameras are unacceptable.
+
+---
+
+## References
+
+- **Single-Pixel Imaging**: Duarte et al., "Single-Pixel Imaging via Compressive Sampling" (2008)
+- **Hadamard Patterns**: Harwit & Sloane, "Hadamard Transform Optics" (1979)
+- **FSRCNN**: Dong et al., "Accelerating the Super-Resolution Convolutional Neural Network" (2016)
+- **Privacy-Preserving Vision**: Padilla-López et al., "Visual Privacy Protection Methods: A Survey" (2015)
