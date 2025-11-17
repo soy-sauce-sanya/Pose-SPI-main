@@ -479,9 +479,7 @@ This project is available for research and educational purposes.
 
 If you use this code in your research, please cite the paper:
 
-Aleksandr Tsoy, Zonghao Liu, Huan Zhang, Mi Zhou, Wenming Yang, Hongya Geng, Kui Jiang, Xin Yuan, and Zihan Geng, "Image-free single-pixel keypoint detection for privacy preserving human pose estimation," Opt. Lett. 49, 546-549 (2024)
-
-https://opg.optica.org/ol/abstract.cfm?URI=ol-49-3-546
+Aleksandr Tsoy, Zonghao Liu, Huan Zhang, Mi Zhou, Wenming Yang, Hongya Geng, Kui Jiang, Xin Yuan, and Zihan Geng, "[Image-free single-pixel keypoint detection for privacy preserving human pose estimation](https://opg.optica.org/ol/abstract.cfm?URI=ol-49-3-546)," Opt. Lett. 49, 546-549 (2024)
 
 ```bibtex
 @article{tsoy2024image,
