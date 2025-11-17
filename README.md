@@ -464,5 +464,3 @@ Aleksandr Tsoy, Zonghao Liu, Huan Zhang, Mi Zhou, Wenming Yang, Hongya Geng, Kui
 ```
 
 ---
-
-**Note**: This repository demonstrates privacy-preserving pose estimation using single-pixel imaging principles. The privacy benefits are inherent to the single-pixel sensing approach, where detailed visual information is never captured by the hardware sensor.
