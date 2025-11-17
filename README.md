@@ -1,8 +1,6 @@
-# Pose-SPI: Image-free Single-Pixel Keypoint Detection
+# Pose-SPI: Image-free Single-Pixel Keypoint Detection Privacy-Preserving Human Pose Estimation using Single-Pixel Imaging
 
-**Privacy-Preserving Human Pose Estimation using Single-Pixel Imaging**
-
-A PyTorch implementation of image-free human keypoint detection using single-pixel imaging (SPI) technology. This approach enables privacy-preserving pose estimation by extracting keypoints directly from single-pixel measurements without reconstructing the full image.
+An official PyTorch implementation of image-free human keypoint detection using single-pixel imaging (SPI) technology. This approach enables privacy-preserving pose estimation by extracting keypoints directly from single-pixel measurements without reconstructing the full image.
 
 ## 📄 Paper
 
