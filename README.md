@@ -484,7 +484,7 @@ Aleksandr Tsoy, Zonghao Liu, Huan Zhang, Mi Zhou, Wenming Yang, Hongya Geng, Kui
 https://opg.optica.org/ol/abstract.cfm?URI=ol-49-3-546
 
 ```bibtex
-@article{Tsoy2024,
+@article{tsoy2024image,
   title={Image-free single-pixel keypoint detection for privacy preserving human pose estimation},
   author={Tsoy, Aleksandr and Liu, Zonghao and Zhang, Huan and Zhou, Mi and Yang, Wenming and Geng, Hongya and Jiang, Kui and Yuan, Xin and Geng, Zihan},
   journal={Optics Letters},
@@ -493,7 +493,7 @@ https://opg.optica.org/ol/abstract.cfm?URI=ol-49-3-546
   pages={546--549},
   year={2024},
   publisher={Optica Publishing Group},
-  doi={10.1364/OL.49.000546}
+  doi={10.1364/OL.514213}
 }
 ```
 
