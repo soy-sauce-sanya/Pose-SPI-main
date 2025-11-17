@@ -78,7 +78,6 @@ Traditional Camera:              Single-Pixel Camera:
 - [Understanding Single-Pixel Imaging](#understanding-single-pixel-imaging)
 - [Important Notes](#important-notes)
 - [Citation](#citation)
-- [Contributing](#contributing)
 
 ## How It Works
 
