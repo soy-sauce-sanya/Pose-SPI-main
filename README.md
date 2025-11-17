@@ -299,11 +299,6 @@ Pose-SPI-main/
 │   └── images/
 │       └── train2017/                # 100 sample images (SPI simulation)
 │
-├── docs/                              # Additional documentation
-│   ├── API.md                        # API reference
-│   ├── ARCHITECTURE.md               # Architecture details
-│   └── EXAMPLES.md                   # Usage examples
-│
 └── tensorboard_logs/                  # Training logs (auto-generated)
 ```
 
@@ -373,17 +368,12 @@ Single-pixel imaging:
 
 Example for 64×64 resolution:
 - Full reconstruction: ~4096 measurements
-- This method: Trained on 4096 (full) or 1024 (reduced) measurements
-- Future work: Could potentially use even fewer measurements
+- This method: Trained on 4096 (full) or ~60 (reduced) measurements
+- Future work: Could implement real-time prediction and/or video prediction using a Digital Micromirror Device (DMD) 
 
-### Hadamard Patterns
+### Hadamard Product
 
-Hadamard patterns are binary (+1/-1) orthogonal patterns optimal for:
-- Signal-to-noise ratio
-- Measurement efficiency
-- Reconstruction quality
-
-The `CustomConv` layer with `product=True` simulates this process:
+The `CustomConv` layer with `product=True` simulates Hadamard product:
 ```python
 measurement = learnable_pattern * input_signal
 ```
@@ -394,8 +384,8 @@ measurement = learnable_pattern * input_signal
 
 - **Input Interpretation**: The 64×64 "images" represent measurement patterns, not traditional photos
 - **Privacy Guarantee**: Keypoints extracted directly; full image never reconstructed
-- **Measurement Count**: Configurable via `reduce` parameter (1024 vs 4096 measurements)
-- **Pattern Simulation**: `CustomConv` with `product=True` mimics Hadamard sampling
+- **Measurement Count**: Configurable via `reduce` parameter (~60 vs 4096 measurements)
+- **Pattern Simulation**: `CustomConv` with `product=True` mimics Hadamard product
 
 ### Training Considerations
 
@@ -406,7 +396,7 @@ measurement = learnable_pattern * input_signal
 
 ### Model Architecture Constraints
 
-- **Measurement Resolution**: Models expect 64×64 measurement patterns (4096 or 1024 measurements)
+- **Measurement Resolution**: Models expect 64×64 measurement patterns
 - **Fully Connected Layers**: Dimensions depend on number of measurements
   - `reduce=False`: 4096 measurements → fc(4096, 1024)
   - `reduce=True`: 1024 measurements → fc(1024, 1024)
@@ -454,27 +444,6 @@ Ensure consistency:
 2. Model: `--num_keypoints` argument
 3. COCO eval: matching `kpt_oks_sigmas` (if using COCO evaluation)
 
-## Contributing
-
-Contributions welcome! Areas of interest:
-
-- Real single-pixel hardware integration
-- Alternative sampling patterns (Fourier, random, learned)
-- Measurement reduction techniques
-- Privacy analysis and guarantees
-- Multi-person pose estimation
-- Temporal modeling for video
-
-Please:
-1. Fork the repository
-2. Create a feature branch
-3. Commit changes
-4. Open a Pull Request
-
-## License
-
-This project is available for research and educational purposes.
-
 ## Citation
 
 If you use this code in your research, please cite the paper:
@@ -494,20 +463,6 @@ Aleksandr Tsoy, Zonghao Liu, Huan Zhang, Mi Zhou, Wenming Yang, Hongya Geng, Kui
   doi={10.1364/OL.514213}
 }
 ```
-
-## Acknowledgments
-
-- FSRCNN architecture: [Accelerating the Super-Resolution Convolutional Neural Network](https://arxiv.org/abs/1608.00367)
-- EfficientNet: [Rethinking Model Scaling for Convolutional Neural Networks](https://arxiv.org/abs/1905.11946)
-- COCO evaluation tools: [pycocotools](https://github.com/cocodataset/cocoapi)
-- Single-pixel imaging community for foundational research
-
-## Related Work
-
-- **Compressed Sensing**: Mathematical foundation for reconstruction from fewer measurements
-- **Computational Imaging**: Broader field of using computation to enhance imaging
-- **Privacy-Preserving Computer Vision**: Alternative approaches using encryption, federated learning
-- **Structured Illumination**: Techniques for pattern projection and sensing
 
 ---
 
