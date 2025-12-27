@@ -38,7 +38,7 @@ illumination_patterns/
 pip-log.txt
 pip-delete-this-directory.txt
 plots.py
-
+*.bmp
 # Unit test / coverage reports
 htmlcov/
 .tox/
